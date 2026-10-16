@@ -51,7 +51,13 @@ class PhotoBackupGuiTests(unittest.TestCase):
             self.assertEqual(str(root.state()), "zoomed")
             self.assertTrue(root.winfo_viewable())
             window_bottom = root.winfo_rooty() + root.winfo_height()
-            for button in (app.preview_button, app.load_button, app.save_button, app.apply_button):
+            for button in (
+                app.preview_button,
+                app.load_button,
+                app.save_button,
+                app.apply_button,
+                app.project_link_button,
+            ):
                 self.assertLessEqual(button.winfo_rooty(), window_bottom)
                 self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), window_bottom)
         finally:
@@ -75,6 +81,11 @@ class PhotoBackupGuiTests(unittest.TestCase):
             self.assertEqual(root.title(), "照片归档管理器")
             self.assertEqual(app.table.item("0", "values")[0], "复制")
             self.assertEqual(app.operation_filter.get(), "全部条目")
+            self.assertIn("点亮 Star", app.community_message.get())
+            self.assertEqual(app.project_link_button.cget("text"), "github.com/zny05/PhotoArchiveManager")
+            with patch("photo_backup_gui.webbrowser.open", return_value=True) as open_project:
+                app.project_link_button.invoke()
+            open_project.assert_called_once_with("https://github.com/zny05/PhotoArchiveManager", new=2)
 
             app.table.selection_set("0")
             app._selection_changed()
@@ -86,9 +97,11 @@ class PhotoBackupGuiTests(unittest.TestCase):
             self.assertEqual(app.selected_decision.get(), "copy")
             self.assertEqual(app.rows[0]["decision"], "copy")
             self.assertEqual(app.operation_filter.get(), "All entries")
+            self.assertIn("please consider giving it a star", app.community_message.get())
             app._toggle_language()
             self.assertEqual(app.table.item("0", "values")[0], "复制")
             self.assertEqual(app.rows[0]["decision"], "copy")
+            self.assertIn("点亮 Star", app.community_message.get())
         finally:
             root.destroy()
 

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import tkinter as tk
+import webbrowser
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -208,6 +209,8 @@ class PhotoBackupApp:
         style.configure("Header.TLabel", background="#173c35", foreground="#f4f7f3")
         style.configure("Title.TLabel", font=("Segoe UI", 18, "bold"))
         style.configure("Subtle.TLabel", foreground="#5b6863")
+        style.configure("Link.TButton", foreground="#176b5b", font=("Segoe UI", 9, "underline"))
+        style.map("Link.TButton", foreground=[("active", "#0b4f43")])
         style.configure("Treeview", rowheight=27, font=("Segoe UI", 9))
         style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
         style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"))
@@ -306,6 +309,7 @@ class PhotoBackupApp:
         self.status.set(self._tr("Language switched; report values are unchanged."))
         self.preview_progress_text.set(self._tr("Preview: idle"))
         self.apply_progress_text.set(self._tr("Apply / auto-pick: idle"))
+        self.community_message.set(self._tr("If Photo Archive Manager is useful to you, please consider giving it a star on GitHub. Help maintaining and improving the project is always welcome."))
         self._render_page()
         selected = self.table.selection()
         if selected:
@@ -361,6 +365,7 @@ class PhotoBackupApp:
 
     def _build_settings(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(5, weight=1)
         mode_box = ttk.LabelFrame(parent, text="Scan mode", padding=10)
         mode_box.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Radiobutton(
@@ -439,6 +444,28 @@ class PhotoBackupApp:
         self.open_report_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
         self.open_log_button = ttk.Button(doc_buttons, text="Open review log", command=self._open_review_log)
         self.open_log_button.grid(row=0, column=1, sticky="ew", padx=(3, 0))
+
+        community = ttk.Frame(parent)
+        community.grid(row=5, column=0, sticky="sew", pady=(12, 2))
+        community.columnconfigure(0, weight=1)
+        self.community_message = tk.StringVar()
+        ttk.Label(
+            community,
+            textvariable=self.community_message,
+            style="Subtle.TLabel",
+            wraplength=350,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.project_link_button = ttk.Button(
+            community,
+            text="github.com/zny05/PhotoArchiveManager",
+            style="Link.TButton",
+            command=self._open_project_page,
+        )
+        self.project_link_button.grid(row=1, column=0, sticky="w")
+
+    def _open_project_page(self) -> None:
+        webbrowser.open("https://github.com/zny05/PhotoArchiveManager", new=2)
 
     def _open_document(self, variable: tk.StringVar, title: str) -> None:
         text = variable.get().strip()

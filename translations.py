@@ -1,5 +1,6 @@
 GUI_ZH = {
     "Photo Archive Manager": "照片归档管理器",
+    "If Photo Archive Manager is useful to you, please consider giving it a star on GitHub. Help maintaining and improving the project is always welcome.": "如果 Photo Archive Manager 对你有帮助，欢迎在 GitHub 点亮 Star；也欢迎加入项目维护与改进。",
     "Preview first  |  SHA-256 identity  |  reviewed moves only": "先预览 | SHA-256 精确识别 | 审核后再操作",
     "Language: English": "语言：English",
     "Language: 中文": "Language: 中文",

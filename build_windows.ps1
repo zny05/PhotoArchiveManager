@@ -58,6 +58,7 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCOD
 
 $Output = Join-Path $DistRoot 'PhotoArchiveManager'
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'Manual.md') -Destination $Output -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'Manual.en.md') -Destination $Output -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination $Output -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot '使用说明书.md') -Destination $Output -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot '使用说明书.pdf') -Destination $Output -Force
