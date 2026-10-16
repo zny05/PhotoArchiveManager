@@ -43,7 +43,7 @@ TEXT = {
         "restoring": "正在还原隔离文件…",
         "done": "完成",
         "error": "错误",
-        "choose_source": "选择来源目录" ,
+        "choose_source": "选择来源目录",
         "choose_target": "选择目标目录",
         "save_report": "保存预览报告",
         "open_report": "打开预览报告",
@@ -56,7 +56,6 @@ TEXT = {
         "preview_match": "匹配预览",
         "no_image": "无可用图片预览",
         "count": "报告行数",
-        "actions": {"copy": "copy", "skip": "skip", "quarantine": "quarantine", "keep": "keep"},
     },
     "en": {
         "title": "Photo Archive Manager",
@@ -92,7 +91,6 @@ TEXT = {
         "preview_match": "Match preview",
         "no_image": "No image preview available",
         "count": "Report rows",
-        "actions": {"copy": "copy", "skip": "skip", "quarantine": "quarantine", "keep": "keep"},
     },
 }
 
@@ -216,7 +214,6 @@ class ArchiveApp:
         self.language_box.configure(values=(strings["chinese"], strings["english"]))
         self.language_box.set(strings["chinese"] if self.language == "zh" else strings["english"])
         self.source_label.configure(text=f'{strings["source"]}:')
-        self.target_label.configure(text=f'{strings["target"]}:')
         self.source_button.configure(text=strings["browse"])
         self.target_button.configure(text=strings["browse"])
         self.preview_button.configure(text=strings["preview"])
@@ -242,9 +239,15 @@ class ArchiveApp:
 
     def _mode_changed(self) -> None:
         backup = self.mode.get() == "backup"
-        state = "normal" if backup else "disabled"
-        self.target_entry.configure(state=state)
-        self.target_button.configure(state=state)
+        self.target_entry.configure(state="normal")
+        self.target_button.configure(state="normal")
+        self._translate_mode_labels(backup)
+
+    def _translate_mode_labels(self, backup: bool) -> None:
+        target_text = TEXT[self.language]["target"]
+        if not backup:
+            target_text += "（可选；用于 copy）" if self.language == "zh" else " (optional; for copy)"
+        self.target_label.configure(text=f"{target_text}:")
 
     def _browse_source(self) -> None:
         path = filedialog.askdirectory(title=self._text("choose_source"))
@@ -260,7 +263,8 @@ class ArchiveApp:
         source = self.source.get().strip()
         target = self.target.get().strip()
         if not source or (self.mode.get() == "backup" and not target):
-            messagebox.showerror(self._text("error"), self._text("choose_source"))
+            missing = self._text("choose_source" if not source else "choose_target")
+            messagebox.showerror(self._text("error"), missing)
             return
         report_path = filedialog.asksaveasfilename(
             title=self._text("save_report"),
@@ -270,16 +274,17 @@ class ArchiveApp:
         )
         if not report_path:
             return
-        self.report_path = Path(report_path)
+        report_destination = Path(report_path)
+        self.report_path = report_destination
         self._busy(True, self._text("working"))
         mode = self.mode.get()
         worker = scan_backup if mode == "backup" else scan_duplicates
-        arguments = (source, target) if mode == "backup" else (source,)
+        arguments = (source, target) if mode == "backup" else (source, target or None)
 
         def work() -> None:
             try:
                 rows = worker(*arguments)
-                write_report(self.report_path, rows)
+                write_report(report_destination, rows)
                 self.messages.put(("scan", rows))
             except Exception as error:
                 self.messages.put(("error", error))
@@ -369,10 +374,12 @@ class ArchiveApp:
         if not selected:
             messagebox.showinfo(self._text("title"), self._text("select_row"))
             return
+        action = self.bulk_box.get()
         for item in selected:
             index = int(item)
-            self.rows[index]["Action"] = self.bulk_box.get()
-            self._update_row(index)
+            self.rows[index]["Action"] = action
+            self.table.set(str(index), "action", action)
+        self.action_box.set(action)
         self._save_current_report()
 
     def _update_row(self, index: int) -> None:
@@ -398,7 +405,7 @@ class ArchiveApp:
         if not messagebox.askyesno(self._text("apply"), self._text("confirm_apply")):
             return
         self._busy(True, self._text("applying"))
-        rows = self.rows
+        rows = [row.copy() for row in self.rows]
         path = self.report_path
 
         def work() -> None:
@@ -435,6 +442,20 @@ class ArchiveApp:
         self.load_button.configure(state=state)
         self.apply_button.configure(state=state)
         self.restore_button.configure(state=state)
+        for control in (
+            self.source_entry,
+            self.source_button,
+            self.target_entry,
+            self.target_button,
+            self.backup_radio,
+            self.duplicates_radio,
+            self.language_box,
+            self.action_box,
+            self.bulk_box,
+            self.bulk_button,
+        ):
+            control.state(["disabled"] if busy else ["!disabled"])
+        self.table.state(["disabled"] if busy else ["!disabled"])
 
     def _poll_messages(self) -> None:
         try:

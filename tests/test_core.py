@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,9 +27,10 @@ class ArchiveCoreTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         image = Image.new("RGB", (64, 64), "white")
         draw = ImageDraw.Draw(image)
-        draw.rectangle((8, 8, 44, 44), fill="black")
-        if variant:
-            draw.rectangle((48, 48, 55, 55), fill="black")
+        if variant == 2:
+            draw.rectangle((0, 0, 63, 63), fill="black")
+        offset = 1 if variant == 1 else 0
+        draw.rectangle((8 + offset, 8, 44 + offset, 44), fill="black")
         image.save(path, format="PNG")
         return path
 
@@ -39,7 +41,7 @@ class ArchiveCoreTests(unittest.TestCase):
         target.mkdir()
         exact = self._image(source / "nested" / "same.png")
         (target / "already.png").write_bytes(exact.read_bytes())
-        self._image(source / "nested" / "new.png", variant=1)
+        self._image(source / "nested" / "new.png", variant=2)
 
         rows = scan_backup(source, target)
         actions = {Path(row["SourcePath"]).name: row["Action"] for row in rows}
@@ -52,6 +54,8 @@ class ArchiveCoreTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue((target / "nested" / "new.png").exists())
         self.assertFalse((target / "nested" / "same.png").exists())
+        operation_log = target / "Quarantine" / "action_log.jsonl"
+        self.assertEqual(json.loads(operation_log.read_text().splitlines()[0])["operation"], "copy")
         self.assertEqual(ACTION_VALUES, ("copy", "skip", "quarantine", "keep"))
 
     def test_duplicate_preview_can_quarantine_and_restore_with_log(self):
@@ -102,6 +106,23 @@ class ArchiveCoreTests(unittest.TestCase):
         rows = scan_backup(source, target)
         self.assertEqual(rows[0]["SourceContentIdentifier"], identifier)
 
+    def test_live_photo_identifier_links_still_and_motion_files(self):
+        root = self.root / "archive"
+        root.mkdir()
+        identifier = "12345678-1234-5678-1234-567812345678"
+        photo = self._image(root / "still.jpg")
+        photo.write_bytes(photo.read_bytes() + f'<xmp:ContentIdentifier="{identifier}">'.encode())
+        video = root / "motion.mov"
+        video.write_bytes(f'com.apple.quicktime.content.identifier\x00{identifier}'.encode())
+
+        rows = scan_duplicates(root)
+        pair = next(row for row in rows if row["Type"] == "live_photo")
+        self.assertEqual(Path(pair["SourcePath"]), photo)
+        self.assertEqual(Path(pair["MatchPath"]), video)
+        self.assertEqual(pair["SourceContentIdentifier"], identifier)
+        self.assertEqual(pair["MatchContentIdentifier"], identifier)
+        self.assertEqual(pair["Action"], "keep")
+
     def test_report_operation_values_are_validated(self):
         report = self.root / "bad.csv"
         with report.open("w", newline="", encoding="utf-8") as stream:
@@ -110,6 +131,52 @@ class ArchiveCoreTests(unittest.TestCase):
             writer.writerow({"Action": "delete"})
         with self.assertRaises(ValueError):
             read_report(report)
+
+    def test_copy_action_requires_destination_before_any_action_is_applied(self):
+        root = self.root / "archive"
+        root.mkdir()
+        first = self._image(root / "a.png")
+        duplicate = root / "b.png"
+        duplicate.write_bytes(first.read_bytes())
+        rows = scan_duplicates(root)
+        rows[0]["Action"] = "copy"
+
+        with self.assertRaisesRegex(ValueError, "selected destination"):
+            apply_report(rows, self.root / "report.csv")
+        self.assertTrue(duplicate.is_file())
+
+    def test_copy_collision_uses_a_non_overwriting_stable_destination(self):
+        source = self.root / "source"
+        target = self.root / "target"
+        source_file = self._image(source / "nested" / "photo.png", variant=2)
+        conflicting = target / "nested" / "photo.png"
+        self._image(conflicting)
+        rows = scan_backup(source, target)
+        report = self.root / "collision.csv"
+
+        apply_report(rows, report)
+        copied = target / "nested" / "photo (1).png"
+        self.assertTrue(copied.is_file())
+        self.assertNotEqual(conflicting.read_bytes(), source_file.read_bytes())
+        results = apply_report(read_report(report), report)
+        self.assertEqual(results, [f"Already present {copied}"])
+        self.assertFalse((target / "nested" / "photo (2).png").exists())
+
+    def test_restore_rejects_log_entries_outside_the_archive_root(self):
+        root = self.root / "archive"
+        quarantine = root / "Quarantine"
+        quarantine.mkdir(parents=True)
+        log = quarantine / "action_log.jsonl"
+        log.write_text(json.dumps({
+            "operation": "quarantine",
+            "root_path": str(self.root),
+            "original_path": str(self.root / "outside.txt"),
+            "quarantine_path": str(quarantine / "outside.txt"),
+            "sha256": "0" * 64,
+        }), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "different archive"):
+            restore_from_log(log)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ On Windows, run `build_windows.bat`. It builds a self-contained `dist\PhotoArchi
 
 ## Preview, review, and apply
 
-1. Select **Back up and check destination** to compare a source directory with a destination, or **Scan one folder for duplicates** to find duplicates within one directory. The selected directories must not overlap.
+1. Select **Back up and check destination** to compare a source directory with a destination, or **Scan one folder for duplicates** to find duplicates within one directory. The selected directories must not overlap. A destination is optional in single-folder mode and is only needed if you mark a row `copy`.
 2. Generate and save the CSV preview. Preview only reads files and writes the report; it does not copy, move, or delete archive files.
 3. Review each row and choose `copy`, `skip`, `quarantine`, or `keep`. Select multiple rows to assign an action in bulk. Double-clicking a row cycles its action.
 4. Select **Authorize and Apply** and confirm the prompt before any copy or quarantine move is performed.
