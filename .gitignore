@@ -1,0 +1,34 @@
+# Local configuration and private review data
+.env
+.env.*
+!.env.example
+/.vscode/
+/*.code-workspace
+/AGENTS.md
+/Prompt_Note.md
+/README-local.md
+/reports.jsonl
+/Quarantine/
+
+# Build outputs and generated state
+/build/
+/dist/
+/venv/
+/.venv/
+**/venv/
+**/.venv/
+/PhotoArchiveManager.spec
+/__pycache__/
+**/__pycache__/
+*.py[cod]
+*.jsonl
+/outdir*/
+**/outdir*/
+/dup_dict_pic.p
+/dup_dict_mov.p
+/dup_dict_pic.json
+/dup_dict_mov.json
+**/dup_dict_pic.p
+**/dup_dict_mov.p
+**/dup_dict_pic.json
+**/dup_dict_mov.json

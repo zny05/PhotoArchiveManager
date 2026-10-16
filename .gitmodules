@@ -1,0 +1,3 @@
+[submodule "iphone-photo-dedup"]
+	path = iphone-photo-dedup
+	url = https://github.com/dcliftreaves/iphone-photo-dedup.git

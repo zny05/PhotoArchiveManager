@@ -1,0 +1,4 @@
+Pillow>=10.0
+ImageHash>=4.3
+pillow-heif>=0.16
+PyExifTool>=0.5
