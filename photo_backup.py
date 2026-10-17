@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -99,6 +100,50 @@ MEDIA_PROPERTY_TAGS = [
 
 class BackupError(Exception):
     pass
+
+
+# BaseException so broad `except Exception` handlers cannot swallow a user stop.
+class TaskCancelled(BaseException):
+    pass
+
+
+class TaskControl:
+    """Cooperative pause/stop flags polled by long-running loops via checkpoint()."""
+
+    def __init__(self) -> None:
+        self._running = threading.Event()
+        self._stopped = threading.Event()
+        self._running.set()
+
+    def reset(self) -> None:
+        self._stopped.clear()
+        self._running.set()
+
+    def pause(self) -> None:
+        self._running.clear()
+
+    def resume(self) -> None:
+        self._running.set()
+
+    def stop(self) -> None:
+        self._stopped.set()
+        self._running.set()
+
+    @property
+    def paused(self) -> bool:
+        return not self._running.is_set()
+
+    def checkpoint(self) -> None:
+        while not self._running.wait(0.1):
+            pass
+        if self._stopped.is_set():
+            raise TaskCancelled()
+
+
+# Keeps ffprobe/ffmpeg from flashing a console window when the GUI runs windowed.
+HIDE_CONSOLE_WINDOW: dict[str, Any] = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+)
 
 
 def resolved(path: Path, *, strict: bool = False) -> Path:
@@ -263,7 +308,9 @@ def _video_resolution(path: Path) -> tuple[int, int] | None:
             "-of", "json", str(path),
         ]
         try:
-            result = subprocess.run(command, capture_output=True, timeout=30, check=False)
+            result = subprocess.run(
+                command, capture_output=True, timeout=30, check=False, **HIDE_CONSOLE_WINDOW
+            )
             stream = (json.loads(result.stdout.decode("utf-8", errors="replace")).get("streams") or [{}])[0]
             width, height = int(stream["width"]), int(stream["height"])
             rotation = (stream.get("tags") or {}).get("rotate")
@@ -277,7 +324,8 @@ def _video_resolution(path: Path) -> tuple[int, int] | None:
     if ffmpeg is not None:
         try:
             result = subprocess.run(
-                [ffmpeg, "-hide_banner", "-i", str(path)], capture_output=True, timeout=30, check=False
+                [ffmpeg, "-hide_banner", "-i", str(path)],
+                capture_output=True, timeout=30, check=False, **HIDE_CONSOLE_WINDOW,
             )
             match = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})[\s,\[]", result.stderr.decode("utf-8", errors="replace"))
             if match:
@@ -536,6 +584,9 @@ def report_progress(
     current: int | None = None,
     total: int | None = None,
 ) -> None:
+    control = getattr(args, "task_control", None)
+    if control is not None:
+        control.checkpoint()
     callback = getattr(args, "progress_callback", None)
     if callback is not None:
         callback(message, current, total)
@@ -548,6 +599,9 @@ class ProgressThrottle:
         self.args, self.label, self.total, self.last = args, label, total, 0.0
 
     def update(self, current: int) -> None:
+        control = getattr(self.args, "task_control", None)
+        if control is not None:
+            control.checkpoint()
         now = time.monotonic()
         if current >= self.total or now - self.last > 0.15:
             self.last = now
@@ -1139,6 +1193,7 @@ def plan_keep_decisions(
     preference: KeepPreference,
     only_pending: bool = True,
     progress: Callable[[int, int], None] | None = None,
+    control: TaskControl | None = None,
 ) -> KeepPlan:
     """Choose which file of each duplicate pair/group to keep and return the rewritten rows."""
     unknown = [name for name in preference.criteria if name not in KEEP_CRITERIA]
@@ -1154,6 +1209,8 @@ def plan_keep_decisions(
     def rank(path_text: str) -> tuple[int, ...] | None:
         if path_text in ranks:
             return ranks[path_text]
+        if control is not None:
+            control.checkpoint()
         path = Path(path_text)
         try:
             stat = path.stat()

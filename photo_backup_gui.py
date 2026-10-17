@@ -21,10 +21,13 @@ from typing import Any
 from photo_backup import (
     BackupError,
     DEFAULT_TYPE_ORDER,
+    HIDE_CONSOLE_WINDOW,
     IMAGE_EXTENSIONS,
     KEEP_CRITERIA,
     VIDEO_EXTENSIONS,
     KeepPreference,
+    TaskCancelled,
+    TaskControl,
     apply_report,
     app_resource_path,
     find_ffmpeg_executable,
@@ -73,7 +76,9 @@ def extract_video_preview(path: Path) -> tuple[Any | None, str | None]:
         "pipe:1",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, timeout=30, check=False)
+        result = subprocess.run(
+            command, capture_output=True, timeout=30, check=False, **HIDE_CONSOLE_WINDOW
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, f"FFmpeg could not extract a frame: {error}"
     if result.returncode != 0 or not result.stdout:
@@ -129,6 +134,7 @@ class PhotoBackupApp:
         self.root.minsize(min(900, initial_width), min(620, initial_height))
         self.events: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.busy = False
+        self.task_control = TaskControl()
         self.header: dict[str, Any] | None = None
         self.rows: list[dict[str, Any]] = []
         self.visible_rows: list[int] = []
@@ -309,6 +315,7 @@ class PhotoBackupApp:
         self.status.set(self._tr("Language switched; report values are unchanged."))
         self.preview_progress_text.set(self._tr("Preview: idle"))
         self.apply_progress_text.set(self._tr("Apply / auto-pick: idle"))
+        self._refresh_task_buttons()
         self.community_message.set(self._tr("If Photo Archive Manager is useful to you, please consider giving it a star on GitHub. Help maintaining and improving the project is always welcome."))
         self._render_page()
         selected = self.table.selection()
@@ -437,8 +444,15 @@ class PhotoBackupApp:
         self.apply_button.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=3)
         self.open_quarantine_button = ttk.Button(buttons, text="Open quarantine folder", command=self._open_quarantine_folder)
         self.open_quarantine_button.grid(row=2, column=0, columnspan=2, sticky="ew", pady=3)
+        task_buttons = ttk.Frame(buttons)
+        task_buttons.grid(row=3, column=0, columnspan=2, sticky="ew", pady=3)
+        task_buttons.columnconfigure((0, 1), weight=1)
+        self.pause_button = ttk.Button(task_buttons, text="Pause", command=self._toggle_pause, state="disabled")
+        self.pause_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self.stop_button = ttk.Button(task_buttons, text="Stop", command=self._stop_task, state="disabled")
+        self.stop_button.grid(row=0, column=1, sticky="ew", padx=(3, 0))
         doc_buttons = ttk.Frame(buttons)
-        doc_buttons.grid(row=3, column=0, columnspan=2, sticky="ew", pady=3)
+        doc_buttons.grid(row=4, column=0, columnspan=2, sticky="ew", pady=3)
         doc_buttons.columnconfigure((0, 1), weight=1)
         self.open_report_button = ttk.Button(doc_buttons, text="Open review report", command=self._open_review_report)
         self.open_report_button.grid(row=0, column=0, sticky="ew", padx=(0, 3))
@@ -797,6 +811,7 @@ class PhotoBackupApp:
             progress_callback=lambda text, current=None, total=None: self.events.put(
                 ("preview_progress", (text, current, total))
             ),
+            task_control=self.task_control,
         )
         self._run_worker("preview", lambda: preview(args), report)
 
@@ -834,6 +849,7 @@ class PhotoBackupApp:
         if self.busy:
             return
         self.busy = True
+        self.task_control.reset()
         self._set_busy(True)
         self.status.set(self._tr(f"{label.title()} running…"))
 
@@ -841,6 +857,8 @@ class PhotoBackupApp:
             try:
                 operation()
                 self.events.put((f"{label}_done", report_path))
+            except TaskCancelled:
+                self.events.put(("cancelled", label))
             except Exception as error:
                 self.events.put(("error", (label, error)))
 
@@ -927,6 +945,17 @@ class PhotoBackupApp:
                         self.preview_images[key] = image
                         self.preview_captions[key].set(f"{path}  |  first frame")
                         self._paint_preview(key)
+                elif event == "cancelled":
+                    self.busy = False
+                    self._set_busy(False)
+                    key = "preview" if payload == "preview" else "apply"
+                    notes = {
+                        "preview": "Preview stopped. No report was written.",
+                        "apply": "Apply stopped. Completed operations are in the action log; create a new preview before applying again.",
+                        "autopick": "Auto-pick stopped. No decisions were changed.",
+                    }
+                    self._finish_progress(key, notes[payload], False)
+                    self.status.set(self._tr(notes[payload]))
                 elif event == "error":
                     self.busy = False
                     self._set_busy(False)
@@ -946,6 +975,33 @@ class PhotoBackupApp:
         has_report = bool(self.rows)
         self.save_button.configure(state="normal" if has_report and not busy else "disabled")
         self._update_apply_state()
+        self._refresh_task_buttons()
+
+    def _refresh_task_buttons(self) -> None:
+        paused = self.task_control.paused
+        self.pause_button.configure(
+            text=self._tr("Resume" if paused else "Pause"), state="normal" if self.busy else "disabled"
+        )
+        self.stop_button.configure(state="normal" if self.busy else "disabled")
+
+    def _toggle_pause(self) -> None:
+        if not self.busy:
+            return
+        if self.task_control.paused:
+            self.task_control.resume()
+            self.status.set(self._tr("Resumed."))
+        else:
+            self.task_control.pause()
+            self.status.set(self._tr("Paused. Click Resume to continue."))
+        self._refresh_task_buttons()
+
+    def _stop_task(self) -> None:
+        if not self.busy:
+            return
+        self.task_control.stop()
+        self.stop_button.configure(state="disabled")
+        self.pause_button.configure(state="disabled")
+        self.status.set(self._tr("Stopping after the current file…"))
 
     def _load_report_dialog(self) -> None:
         selected = filedialog.askopenfilename(
@@ -1045,6 +1101,7 @@ class PhotoBackupApp:
                 ("apply_progress", (text, current, total))
             ),
             result_callback=lambda summary: self.events.put(("apply_result", summary)),
+            task_control=self.task_control,
         )
         self._run_worker("apply", lambda: apply_report(args))
 
@@ -1568,12 +1625,17 @@ class PhotoBackupApp:
                 self.events.put(("apply_progress", (f"Auto-pick {done:,}/{total:,}", done, total)))
 
             try:
-                plan = plan_keep_decisions(rows_view, indices, preference, pending_only, progress)
+                plan = plan_keep_decisions(
+                    rows_view, indices, preference, pending_only, progress, self.task_control
+                )
                 self.events.put(("autopick_done", (plan, [item for item in snapshot if item[0] in plan.changes])))
+            except TaskCancelled:
+                self.events.put(("cancelled", "autopick"))
             except Exception as error:
                 self.events.put(("error", ("autopick", error)))
 
         self.busy = True
+        self.task_control.reset()
         self._set_busy(True)
         threading.Thread(target=work, daemon=True).start()
 
