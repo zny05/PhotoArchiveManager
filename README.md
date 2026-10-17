@@ -6,7 +6,7 @@ Windows desktop tool for previewing photo backups and reviewing duplicates. The 
 
 The Windows x64 portable package is published in [GitHub Releases](https://github.com/zny05/PhotoArchiveManager/releases). The package includes the Python runtime dependencies, ExifTool, FFmpeg/ffprobe, and the application icon. Keep the extracted `PhotoArchiveManager` folder together when launching the executable.
 
-The Chinese user guide is available as [Markdown](使用说明书.md) and [PDF](使用说明书.pdf). The GUI manual is available in [Chinese](Manual.md) and [English](Manual.en.md).
+The Chinese user guide is available as [Markdown](使用说明书.md) and [PDF](使用说明书.pdf). The GUI manual is available in [Chinese](Manual.md) and [English](Manual.en.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## From source
 
